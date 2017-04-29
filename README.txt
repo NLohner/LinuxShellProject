@@ -5,13 +5,13 @@ to compile: run 'make'
 to run: run './1730sh'
 
 TODO:
+	background jobs
+	bookkeeping
 	fg builtin
 	bg builtin
 	kill builtin
-	export builtin
 	jobs builtin
-	
-	quote parsing
+
 	IO redirection
-	background jobs
-	bookkeeping
+	export builtin
+
