@@ -290,7 +290,7 @@ it so that these whitespace tokens are NOT added to the processArgv
 
  if(in && !isArrows(token))
    jobStdin = token;
-
+ 
  if(out && !isArrows(token)) {
    jobStdout = token;
    jobStdout += truncOrApp; //will either be (truncate) or (append) based on what happens below
@@ -348,7 +348,7 @@ it so that these whitespace tokens are NOT added to the processArgv
 
 
       
-
+      
   }
 }
 
