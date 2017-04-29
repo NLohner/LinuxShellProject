@@ -269,27 +269,33 @@ int main(){
 
 }//main 
 
-
+/* 
+ * Modifies the global variable 'processes' so that arguments within quotes
+ *      will count as one argument altogether. 
+ * The leading and trailing quotes as well as any backslashes that directly precede a "
+ *      will be removed from each of the quoted strings. 
+ */
 void quotes() 
 {
-  //each process:
-  for(int i = 0; processes[i][0] != ""; i++) { 
-    int startpos = 0;
-    int endpos = 0;
-    string inquotes = "";
+  for(int i = 0; processes[i][0] != ""; i++) { // for each process  
+    int startpos = 0; //starting position of the quoted string
+    int endpos = 0; //end pos of quoted string 
+    string inquotes = ""; // the string contained within quotes 
     bool quoteDetected = false;
-    //within the process:
-    for(int j = 0; j < MAX_LINES; j++) {
-      if((processes[i][j] != "") && (processes[i][j]).at(0) == '\"') {
+
+    // Find the first (leading) quotes
+    for(int j = 0; j < MAX_LINES; j++) { //for each string (argument) within the process
+      if((processes[i][j] != "") && (processes[i][j]).at(0) == '\"') { // process[i][j] is an argument within process i 
 	startpos = j;
 	quoteDetected = true;
 	break;
       }
     }
-    //startpos is one before the quote
+    
+    // Find the ending quotes
     if(quoteDetected) {
       for(int k = startpos; k < MAX_LINES; k++) {
-	inquotes += processes[i][k];
+	inquotes += processes[i][k]; // add everything inside quotes to string inquotes
 	inquotes += " ";
 	if((processes[i][k]).back() == '\"' && *(processes[i][k].rbegin() + 1) != '\\') {
 	  endpos = k;
@@ -302,31 +308,22 @@ void quotes()
       inquotes = remove_firstAndLast(inquotes);
       inquotes = inquotes.substr(0, inquotes.length() - 1);
       
+      // Rearrange array so that the quoted string only counts as one argument
       for(int j = startpos; j < MAX_LINES; j++) {
 	if(j == startpos) {
 	  processes[i][j] = inquotes;
 	}
 	else
-	  processes[i][j] = processes[i][endpos - startpos + j];
-	
-      }
+	  processes[i][j] = processes[i][endpos - startpos + j];	
       
+      } // for
       
-
-      
-    } // if quoteDetected
-  } // big for 
-  
-    
-  //go thru the array
-  
-  
-  //save first quote  
-  
-  
-}
+    } // if(quoteDetected)
+  } // big for  
+} // quotes()
 
 
+/* Removes backslashes that are directly followed by quotes within a string */
 string remove_slashes(string str)
 {
   string str_to_erase = "\\\""; // removing \"
