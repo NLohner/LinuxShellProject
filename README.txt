@@ -12,6 +12,5 @@ TODO:
 	kill builtin
 	jobs builtin
 
-	IO redirection
 	export builtin
 
