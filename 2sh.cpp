@@ -205,13 +205,16 @@ int main(){
 
       //if we have cd
       else if(processes[0][0] == "cd"){
-
-	if(chdir(processes[0][1].c_str()) < 0){
-
-	  perror("cd");
-
-	}//if
-
+	
+	if(processes[0][1] == "") { // if no arguments after cd
+	  if(chdir(getenv("HOME")) < 0) // change dir to HOME by default
+	    perror("cd");
+	}
+	
+	else // argument exists after cd
+	  if(chdir(processes[0][1].c_str()) < 0)
+	    perror("cd");
+	
       }//else if
 
       else if(processes[0][0] == "help"){
