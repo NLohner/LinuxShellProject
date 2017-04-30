@@ -5,8 +5,10 @@
 #include <string>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <pwd.h>
+#include <fcntl.h>
 
 using std::string;
 using std::stringstream;
@@ -31,7 +33,8 @@ void execute(string[]);
 void printstatus(int);
 string remove_slashes(string);
 string remove_firstAndLast(string); 
-void quotes();
+void quotes(); 
+void redirectIO(int&, int&, int&); //fd_in, fd_out, fd_err
 
 int status = 1;
 
@@ -80,6 +83,12 @@ int main(){
       //fill the array with the processes
       fillProcesses();
       quotes();
+      
+      // These may or may not be modified later in child depending on if <, >, >>, etc. were detected:
+      int in_fileno = STDIN_FILENO;
+      int out_fileno = STDOUT_FILENO;
+      int err_fileno = STDERR_FILENO;
+      
       //get the number of pipes for our loop that creates each process
       int numpipes = numPipes();
 
@@ -141,7 +150,7 @@ int main(){
 	    if(i != 0){
 
 	      //duplicate the file descriptor into standard input
-	      if(dup2(pipes[i-1][0], STDIN_FILENO) == -1){
+	      if(dup2(pipes[i-1][0], STDIN_FILENO) == -1){ //remember: stdin_fileno is a variable that was set above
 
 		perror("dup2");
 
@@ -170,6 +179,8 @@ int main(){
 
 	    }//for
 
+	    redirectIO(in_fileno, out_fileno, err_fileno);
+	    
 	    //execute the process
 	    execute(processes[i]);
 
@@ -237,6 +248,8 @@ int main(){
 	  signal(SIGTTOU, SIG_DFL);
 	  signal(SIGCHLD, SIG_DFL);
 
+	  redirectIO(in_fileno, out_fileno, err_fileno);
+
 	  //execute the command
 	  execute(processes[0]);
 
@@ -297,7 +310,7 @@ void quotes()
       for(int k = startpos; k < MAX_LINES; k++) {
 	inquotes += processes[i][k]; // add everything inside quotes to string inquotes
 	inquotes += " ";
-	if((processes[i][k]).back() == '\"' && *(processes[i][k].rbegin() + 1) != '\\') {
+	if((processes[i][k]).back() == '\"' && *(processes[i][k].rbegin() + 1) != '\\') { //if string doesn't end with backslash-quotes 
 	  endpos = k;
 	  break;
 	} // if
@@ -314,7 +327,7 @@ void quotes()
 	  processes[i][j] = inquotes;
 	}
 	else
-	  processes[i][j] = processes[i][endpos - startpos + j];	
+	  processes[i][j] = processes[i][endpos - startpos + j]; //difference + j	
       
       } // for
       
@@ -323,6 +336,108 @@ void quotes()
 } // quotes()
 
 
+/* Helper function for redirectIO. Return true if string is <, >, >>, e>, or e>>. Else return false */
+bool isArrows(string s)
+{
+  if(s == ">")
+    return true;
+  else if(s == "<")
+    return true;
+  else if(s == ">>")
+    return true;
+  else if(s == "e>>")
+    return true;
+  else if(s == "e>")
+    return true;
+
+  else
+    return false;
+}
+
+/* 
+ * This function is called in a child process just before exec to acheive IO redirection.
+ * First parses jobStdin, jobStdout, jobStderr.
+ *      --> their file descriptors (returned by open(2)) are then assigned to in_fileno, out_fileno, and/or err_fileno.
+ *      --> Finally, duplicate those file descriptors onto STDIN, STDOUT, and STDERR 
+ * Also removes <, >, >>, e>, and e>> (and anything following them) from the process's arguments using bool 'omit'
+ */
+void redirectIO(int& in_fileno, int& out_fileno, int& err_fileno) 
+{
+  string jobStdin = ""; // the name of the file after '<'
+  string jobStdout = "";
+  string jobStderr = "";
+  
+  /* First, parse jobStdin, jobStdout, and jobStderr and get their file descriptors */
+
+  for(int i = 0; processes[i][0] != ""; i++) { // for each process (although IO chars will only be in the last process)
+    
+    bool omit = false; // Becomes true when any IO char (<, >, >>, etc.) is encountered    
+    
+
+    for(int j = 0; j < MAX_LINES; j++) { // for every arg in the process
+      
+      string& token = processes[i][j]; 
+      
+      if(isArrows(token))  
+	omit = true; // the arrow itself (<, >, etc.) and everything past it will be omitted (removed) from the process's arguments
+      
+  
+      if(token == "<") { 
+	jobStdin = processes[i][j+1]; // assuming a filename is given after the <
+	if((in_fileno = open(jobStdin.c_str(), O_RDONLY)) == -1) { // attempt to open input file for reading 
+	  perror("open");
+	  exit(EXIT_FAILURE);
+	}
+      }
+      else if(token == ">") { // truncate 
+	jobStdout = processes[i][j+1];
+	if((out_fileno = open(jobStdout.c_str(), O_WRONLY | O_TRUNC)) == -1) {
+	  perror("open");
+	  exit(EXIT_FAILURE);
+	}
+      }
+      else if(token == ">>") { // append
+	jobStdout = processes[i][j+1];
+	if((out_fileno = open(jobStdout.c_str(), O_WRONLY | O_APPEND)) == -1) {
+	  perror("open");
+	  exit(EXIT_FAILURE);
+	}
+      }
+      else if(token == "e>") { // truncate 
+	jobStderr = processes[i][j+1];
+	if((err_fileno = open(jobStderr.c_str(), O_WRONLY | O_TRUNC)) == -1) {
+	  perror("open");
+	  exit(EXIT_FAILURE);
+	}
+      }
+      else if(token == "e>>") { // append
+	jobStderr = processes[i][j+1];
+	if((err_fileno = open(jobStderr.c_str(), O_WRONLY | O_APPEND)) == -1) {
+	  perror("open");
+	  exit(EXIT_FAILURE);
+	}
+      }
+      
+      if(omit) // remove omitted tokens from process's arguments    
+	token = ""; //remember: token is a REFERENCE to processes[i][j]
+  
+    } // for
+  } // for
+
+  /* Now do the actual redirecting: */
+  if(dup2(in_fileno, STDIN_FILENO) == -1) { //duplicate input file onto STDIN
+    perror("dup2");
+  }
+  if(dup2(out_fileno, STDOUT_FILENO) == -1) { //duplicate output file onto STDOUT
+    perror("dup2");
+  }
+  if(dup2(err_fileno, STDERR_FILENO) == -1) {
+    perror("dup2");
+  }
+  
+} //redirectIO()
+
+	
 /* Removes backslashes that are directly followed by quotes within a string */
 string remove_slashes(string str)
 {
