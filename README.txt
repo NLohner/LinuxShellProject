@@ -5,7 +5,6 @@ to compile: run 'make'
 to run: run './1730sh'
 
 TODO:
-	background jobs
 	bookkeeping
 	fg builtin
 	bg builtin
