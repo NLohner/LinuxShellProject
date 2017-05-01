@@ -48,6 +48,15 @@ int main(){
   signal(SIGTTOU, SIG_IGN);
   signal(SIGCHLD, SIG_IGN);
 
+  int fd;
+
+  //get the file descriptor of the terminal
+  if((fd = open("/dev/tty",O_RDONLY)) < 0) perror("open");
+
+  //set the process group that controls the terminal to the process group
+  //of our shell
+  tcsetpgrp(fd,getpgrp());
+
   //loop forever
   while(true){
 
@@ -64,6 +73,9 @@ int main(){
 
       //just to be sure
       buffer[strlen(buffer)] = '\0';
+
+      //if we are running the process in the background
+      bool background = false;
 
       //put the input words into argv for easy use
       stringstream ss(buffer);
@@ -83,12 +95,29 @@ int main(){
       //fill the array with the processes
       fillProcesses();
       quotes();
-      
+
+      //if the last thing the user typed was an ampersand
+      for(int i = 0; processes[i][0] != ""; i++){
+
+	for(int j = 0; processes[i][j] != ""; j++){
+
+	  if((processes[i][j] == "&") && (processes[i][j+1] == "") && (processes[i + 1][0] == "")){
+
+	    background = true;
+
+	    processes[i][j] = "";
+
+	  }//if
+
+	}//for
+
+      }//for
+
       // These may or may not be modified later in child depending on if <, >, >>, etc. were detected:
       int in_fileno = STDIN_FILENO;
       int out_fileno = STDOUT_FILENO;
       int err_fileno = STDERR_FILENO;
-      
+
       //get the number of pipes for our loop that creates each process
       int numpipes = numPipes();
 
@@ -96,7 +125,7 @@ int main(){
       //index of the last process that we want to run
       int numProcs = numpipes + 1;
 
-      //id of the children
+      //id of the child
       int pid;
 
       //storage for our pipe file descriptors
@@ -136,6 +165,15 @@ int main(){
 
 	  //if we're in the child
 	  else if (pid == 0){
+
+	    //if the child should be run in the background
+	    if(background){
+
+	      //move it out of the process group of the shell,
+	      //so that it doesn't have control of the terminal
+	      setpgid(getpid(),getpid());
+
+	    }//if
 
 	    //unignore all of the signals we ignored
 	    signal (SIGINT, SIG_DFL);
@@ -243,6 +281,15 @@ int main(){
 	//if we're in the child
 	else if (pid == 0){
 
+	  //if the child should be run in the background
+	  if(background){
+
+	    //move it out of the process group of the shell,
+	    //so that it doesn't have control of the terminal
+	    setpgid(getpid(),getpid());
+
+	  }//if
+
 	  //unignore all of the signals we ignored
 	  signal (SIGINT, SIG_DFL);
 	  signal(SIGQUIT, SIG_DFL);
@@ -270,10 +317,14 @@ int main(){
 
       int stat;
 
-      //wait for the child and print its status once it exits
+      //if we're not in the background, wait for the child and print its status once it exits
       //This doesn't work if the child terminates before we reach this line,
       //which happens often
-      if(waitpid(pid, &stat, WUNTRACED) != -1) printstatus(stat);
+      if(!background){
+
+	if(waitpid(pid, &stat, WUNTRACED) != -1) printstatus(stat);
+
+      }//if
 
     }//if
 
@@ -300,7 +351,7 @@ void quotes()
     bool quoteDetected = false;
 
     // Find the first (leading) quotes
-    for(int j = 0; j < MAX_LINES; j++) { //for each string (argument) within the process
+    for(unsigned int j = 0; j < MAX_LINES; j++) { //for each string (argument) within the process
       if((processes[i][j] != "") && (processes[i][j]).at(0) == '\"') { // process[i][j] is an argument within process i 
 	startpos = j;
 	quoteDetected = true;
@@ -310,7 +361,7 @@ void quotes()
     
     // Find the ending quotes
     if(quoteDetected) {
-      for(int k = startpos; k < MAX_LINES; k++) {
+      for(unsigned int k = startpos; k < MAX_LINES; k++) {
 	inquotes += processes[i][k]; // add everything inside quotes to string inquotes
 	inquotes += " ";
 	if((processes[i][k]).back() == '\"' && *(processes[i][k].rbegin() + 1) != '\\') { //if string doesn't end with backslash-quotes 
@@ -325,8 +376,8 @@ void quotes()
       inquotes = inquotes.substr(0, inquotes.length() - 1);
       
       // Rearrange array so that the quoted string only counts as one argument
-      for(int j = startpos; j < MAX_LINES; j++) {
-	if(j == startpos) {
+      for(unsigned int j = startpos; j < MAX_LINES; j++) {
+	if(j == (unsigned int)startpos) {
 	  processes[i][j] = inquotes;
 	}
 	else
@@ -377,7 +428,7 @@ void redirectIO(int& in_fileno, int& out_fileno, int& err_fileno)
     bool omit = false; // Becomes true when any IO char (<, >, >>, etc.) is encountered    
     
 
-    for(int j = 0; j < MAX_LINES; j++) { // for every arg in the process
+    for(unsigned int j = 0; j < MAX_LINES; j++) { // for every arg in the process
       
       string& token = processes[i][j]; 
       
