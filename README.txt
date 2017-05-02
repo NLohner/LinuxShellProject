@@ -9,3 +9,6 @@ TODO:
 	fg builtin (done if the job is stopped, but not if it is running)
 	bg builtin
 	kill builtin
+	
+	done with export builtin but remember to add "builtin = true" to it
+	after we merge our .cpp files 
