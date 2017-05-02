@@ -1,4 +1,4 @@
-co Lohner 811775576
+Nico Lohner 811775576 Jake Schramm 811322582
 
 to compile: run 'make'
 
