@@ -9,6 +9,11 @@
 #include <sys/wait.h>
 #include <pwd.h>
 #include <fcntl.h>
+#include <stdlib.h>
+
+#include <iostream>
+using std::cout;
+using std::endl;
 
 using std::string;
 using std::stringstream;
@@ -17,11 +22,13 @@ const unsigned int MAX_LINE_LENGTH = 2048*10;
 const unsigned int MAX_LINES = 256;
 const unsigned int MAX_PROCESSES = 128;
 const unsigned int MAX_PIPES = MAX_PROCESSES - 1;
+const unsigned int MAX_JOBS = 256;
 
 char buffer[MAX_LINE_LENGTH];
 
 string arguments[MAX_LINES];
 string processes[MAX_PROCESSES][MAX_LINES];
+string jobs[MAX_JOBS];
 
 string getcwdir();
 
@@ -30,13 +37,19 @@ int numPipes();
 void reset();
 void fillProcesses();
 void execute(string[]);
-void printstatus(int);
+void printstatus(int,int);
 string remove_slashes(string);
-string remove_firstAndLast(string); 
+string remove_firstAndLast(string);
 void quotes(); 
 void redirectIO(int&, int&, int&); //fd_in, fd_out, fd_err
+void addJob(int,string[],int);
+int removeJob(int);
+void printJobs();
 
 int status = 1;
+
+void my_handler(int signum){
+}//my_handler
 
 int main(){
 
@@ -48,6 +61,9 @@ int main(){
   signal(SIGTTOU, SIG_IGN);
   signal(SIGCHLD, SIG_IGN);
 
+  signal(SIGUSR1, my_handler);
+  signal(SIGUSR2, my_handler);
+
   int fd;
 
   //get the file descriptor of the terminal
@@ -55,7 +71,10 @@ int main(){
 
   //set the process group that controls the terminal to the process group
   //of our shell
-  tcsetpgrp(fd,getpgrp());
+  if(tcsetpgrp(fd,getpgrp()) < 0) perror("tcsetgrp");
+
+  int shellPID = getpid();
+  int shellPGID = getpgid(getpid());
 
   //loop forever
   while(true){
@@ -76,6 +95,8 @@ int main(){
 
       //if we are running the process in the background
       bool background = false;
+
+      bool builtin = false;
 
       //put the input words into argv for easy use
       stringstream ss(buffer);
@@ -127,6 +148,7 @@ int main(){
 
       //id of the child
       int pid;
+      int pgid;
 
       //storage for our pipe file descriptors
       int pipes[MAX_PIPES][2];
@@ -134,7 +156,7 @@ int main(){
       //if we have to handle piping
       if(numpipes > 0){
 
-	/* code in this loop was adapted from pipe4.cpp */
+	/*      code in this loop was adapted from pipe4.cpp      */
 	//loop through each process
 	for(int i = 0; i < numProcs; i++){
 
@@ -218,9 +240,21 @@ int main(){
 	    }//for
 
 	    redirectIO(in_fileno, out_fileno, err_fileno);
-	    
+
+	    kill(shellPID, SIGUSR2);
+
+	    if(!background) pause();
+
 	    //execute the process
 	    execute(processes[i]);
+
+	  }//else if
+
+	  else if(pid != 0){
+
+	    pause();
+
+	    pgid = getpgid(pid);
 
 	  }//else if
 
@@ -243,6 +277,8 @@ int main(){
 
       //if we have cd
       else if(processes[0][0] == "cd"){
+
+	builtin = true;
 	
 	if(processes[0][1] == "") { // if no arguments after cd
 	  if(chdir(getenv("HOME")) < 0) // change dir to HOME by default
@@ -257,20 +293,64 @@ int main(){
 
       else if(processes[0][0] == "help"){
 
-	write(STDOUT_FILENO,"\nbg JID -- Resume the stopped job JID in the background, as if it had been started with&.\n",90);
+	builtin = true;
+
+	write(STDOUT_FILENO,"\nbg JID -- Resume the stopped job JID in the background, as if it had been started with &.\n",91);
 	write(STDOUT_FILENO,"cd [PATH] -- Change the current directory to PATH. The environmental variable HOME is the default PATH.\n",104);
 	write(STDOUT_FILENO,"exit [N] -- Cause the shell to exit with a status of N. If N is omitted, the exit status is that of the last job executed.\n",123);
 	write(STDOUT_FILENO,"export NAME[=WORD] -- NAME is automatically included in the environment of subsequently executed jobs.\n",103);
 	write(STDOUT_FILENO,"fg JID -- Resume job JID in the foreground, and make it the current job.\n",73);
 	write(STDOUT_FILENO,"help -- Display helpful information about builtin commands.\n",60);
 	write(STDOUT_FILENO,"jobs -- List current jobs.\n",27);
-	write(STDOUT_FILENO,"kill [-s SIGNAL] PID -- The kill utility sends the specied signal to the specied process or process group PID (see kill(2)).  If no signal is specied, the SIGTERM signal is sent.\n\n",180);
+	write(STDOUT_FILENO,"kill [-s SIGNAL] PID -- The kill utility sends the specified signal to the specied process or process group PID (see kill(2)).  If no signal is specied, the SIGTERM signal is sent.\n\n",182);
 
       }//else if
 
-      //if we have no pipes
+      else if(processes[0][0] == "jobs"){
+
+	builtin = true;
+
+	printJobs();
+
+      }//else if
+
+      else if(processes[0][0] == "fg"){
+
+	builtin = true;
+
+	if(processes[0][1] == ""){
+
+	  write(STDOUT_FILENO,"fg: usage: fg JID\n",18);
+
+	}//if
+
+	else if(removeJob(std::stoi(processes[0][1])) < 0){
+
+	  write(STDOUT_FILENO,"fg: no such JID\n",17);
+
+	}//if
+
+	else{
+
+	  int processPID = std::stoi(processes[0][1]);
+
+	  setpgid(processPID, shellPGID);
+
+	  kill(processPID, SIGCONT);
+
+	  int stat;
+
+	  wait(&stat);
+
+	  if(waitpid(processPID, &stat, WUNTRACED) != -1) printstatus(stat,pid);
+
+	}//else
+
+      }//else if
+
+      //if we have no pipes and aren't running a builtin
       else{
-	
+
 	//fork
 	if((pid = fork()) == -1){
 
@@ -300,29 +380,57 @@ int main(){
 
 	  redirectIO(in_fileno, out_fileno, err_fileno);
 
+	  kill(shellPID, SIGUSR2);
+
+	  if(background) kill(getpid(),SIGSTOP);
+
+	  if(!background) pause();
+
 	  //execute the command
 	  execute(processes[0]);
 
 	}//else if
 
+	else if(pid != 0){
+
+	  pause();
+
+	  pgid = getpgid(pid);
+
+	}//else if
+
       }//else
 
-      //close out all of the pipes, as we no longer need them
-      for(int j = 0; j < numpipes; j++){
+      if(!builtin){
 
-	close(pipes[j][0]);
-	close(pipes[j][1]);
+	//close out all of the pipes, as we no longer need them
+	for(int j = 0; j < numpipes; j++){
 
-      }//for
+	  close(pipes[j][0]);
+	  close(pipes[j][1]);
 
-      int stat;
+	}//for
 
-      //if we're not in the background, wait for the child and print its status once it exits
-      //This doesn't work if the child terminates before we reach this line,
-      //which happens often
-      if(!background){
+	bool exited = false;
 
-	if(waitpid(pid, &stat, WUNTRACED) != -1) printstatus(stat);
+	int stat = 0;
+
+	//if we're not in the background, wait for the child and print its status once it exits
+	//This doesn't work if the child terminates before we reach this line,
+	//which happens often
+	if(!background){
+
+	  kill(pid,SIGUSR1);
+
+	  if(waitpid(pid, &stat, WUNTRACED) != -1) printstatus(stat,pid);
+
+	  else exited = true;
+
+	}//if
+
+	addJob(pgid,arguments,stat);
+
+	if(exited) removeJob(pgid);
 
       }//if
 
@@ -604,7 +712,8 @@ void reset(){
 
   }//for
 
-  for(int i = 0; processes[i][1] != ""; i++){
+  //clean up processes
+  for(int i = 0; processes[i][0] != ""; i++){
 
     for(int j = 0; processes[i][j] != ""; j++){
 
@@ -682,10 +791,14 @@ void execute(string args[]){
  * Writes the specified process change to standard output
  * @param status the int value of the status change
  */
-void printstatus(int stat){
+void printstatus(int stat, int JID){
+
+  string jobID = std::to_string(JID);
 
   //write the process change
-  write(STDOUT_FILENO,"\nProcess status change: ",24);
+  write(STDOUT_FILENO,"\nProcess with JID ",18);
+  write(STDOUT_FILENO,jobID.c_str(),jobID.length());
+  write(STDOUT_FILENO," status changed: ",17);
 
   if(WIFEXITED(stat)){
 
@@ -701,6 +814,102 @@ void printstatus(int stat){
 
   else if(WIFSTOPPED(stat)) write(STDOUT_FILENO,"Stopped\n",8);
 
-  else if(WIFCONTINUED(stat)) write(STDOUT_FILENO,"Continued\n",10);
-
 }//printstatus
+
+/*
+ * Adds a job to the jobs array
+ */
+void addJob(int ID, string command[], int stat){
+
+  string out = "";
+
+  string status = "";
+
+  string JID = std::to_string(ID);
+
+  if(WIFSTOPPED(stat)) status = "Stopped";
+
+  else if(stat == 0) status = "Stopped";
+
+  else status = "Running";
+
+  out = JID + "\t" + status + "\t\t";
+
+  for(int i = 0; command[i] != ""; i++){
+
+    out += command[i];
+
+    out += " ";
+
+  }//for
+
+  int pos = 0;
+
+  for(int i = 0; jobs[i] != ""; i++){
+
+    pos++;
+
+  }//for
+
+  jobs[pos] = out;
+
+}//addJob
+
+/*
+ * Removes a job from the jobs array
+ * @param JID the job id of the job to remove
+ */
+int removeJob(int JID){
+
+  int out = -1;
+
+  string ID = std::to_string(JID);
+
+  int end = ID.length();
+
+  for(int i = 0; jobs[i] != ""; i++){
+
+    if(jobs[i].substr(0,end) == ID){
+
+      out = i;
+
+      jobs[i] = "removed";
+
+      break;
+
+    }//if
+
+  }//for
+
+  for(int i = 0; jobs[i] != ""; i++){
+
+    if(jobs[i] == "removed"){
+
+      jobs[i] = jobs[i + 1];
+
+      if(jobs[i + 1] != "") jobs[i + 1] = "removed";
+
+    }//if
+
+  }//for
+
+  return out;
+
+}//removeJob
+
+/*
+ * Prints all of the currently running or stopped jobs to standard output
+ */
+void printJobs(){
+
+  write(STDOUT_FILENO,"JID\tSTATUS\t\tCOMMAND\n",20);
+
+  for(int i = 0; jobs[i] != ""; i++){
+
+    write(STDOUT_FILENO,jobs[i].c_str(),jobs[i].length());
+
+    write(STDOUT_FILENO,"\n",1);
+
+  }//for
+
+}//printJobs
