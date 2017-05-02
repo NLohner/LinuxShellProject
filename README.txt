@@ -13,4 +13,4 @@ TODO:
 	bg builtin (I don't really have a way to test if this works, but I was getting the same weird functionality
 		    that I was getting earlier, so I assume it works?)
 		    
-	kill builtin (done for some specific signals, I don't know how many we need to add)
+	kill builtin (done for some specific signals, I don't know how many we need to add. Also hard to test though)
