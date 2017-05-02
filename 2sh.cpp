@@ -102,9 +102,10 @@ int main(){
       //storage for our pipe file descriptors
       int pipes[MAX_PIPES][2];
 
+      
       //if we have to handle piping
       if(numpipes > 0){
-
+	
 	/* code in this loop was adapted from pipe4.cpp */
 	//loop through each process
 	for(int i = 0; i < numProcs; i++){
@@ -230,6 +231,16 @@ int main(){
 
       }//else if
 
+      //if we have export
+      else if(processes[0][0] == "export") {
+	size_t found = (processes[0][1]).find("="); //index where = is found
+	if(found != string::npos) { //contains = 
+	  string name = (processes[0][1]).substr(0, found); //string before the =
+	  string value = (processes[0][1]).substr(found + 1, (processes[0][1]).size()); //string after the = 
+	  setenv(name.c_str(), value.c_str(), 1); // overwrite if already exists
+	}
+      }
+      
       //if we have no pipes
       else{
 	
