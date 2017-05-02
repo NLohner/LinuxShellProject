@@ -1,56 +1,62 @@
-#include <stdlib.h>
-#include <cstdlib>
-#include <unistd.h>
-#include <sstream>
-#include <string>
-#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <pwd.h>
-#include <fcntl.h>
 #include <stdlib.h>
-
-#include <iostream>
-using std::cout;
-using std::endl;
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <cstdlib>
+#include <sstream>
+#include <fcntl.h>
+#include <string>
+#include <pwd.h>
 
 using std::string;
 using std::stringstream;
 
 const unsigned int MAX_LINE_LENGTH = 2048*10;
-const unsigned int MAX_LINES = 256;
-const unsigned int MAX_PROCESSES = 128;
-const unsigned int MAX_PIPES = MAX_PROCESSES - 1;
-const unsigned int MAX_JOBS = 256;
+const unsigned int       MAX_LINES = 256;
+const unsigned int   MAX_PROCESSES = 128;
+const unsigned int       MAX_PIPES = MAX_PROCESSES - 1;
+const unsigned int        MAX_JOBS = 256;
 
+//buffer for reading user input
 char buffer[MAX_LINE_LENGTH];
 
-string arguments[MAX_LINES];
+//arrays that hold the  arguments type in, the processes 
+//on individual lines, and the jobs
+string                      jobs[MAX_JOBS];
+string                arguments[MAX_LINES];
 string processes[MAX_PROCESSES][MAX_LINES];
-string jobs[MAX_JOBS];
 
-string getcwdir();
+/* prototypes */
 
-int numPipes();
-
-void reset();
-void fillProcesses();
-void execute(string[]);
-void printstatus(int,int);
-string remove_slashes(string);
+//string
+string                  getcwdir();
+string      remove_slashes(string);
 string remove_firstAndLast(string);
-void quotes(); 
-void redirectIO(int&, int&, int&); //fd_in, fd_out, fd_err
-void addJob(int,string[],int);
-int removeJob(int);
-int updateJob(int,string);
-void printJobs();
 
+//int
+int               numPipes();
+int           removeJob(int);
+int    updateJob(int,string);
+
+//void
+void                        reset();
+void                       quotes();
+void                    printJobs();
+void                fillProcesses();
+void              execute(string[]);
+void           printstatus(int,int);
+void       addJob(int,string[],int);
+void   redirectIO(int&, int&, int&);
+
+//used for the exit status of the last run program
 int status = 1;
 
-void my_handler(int signum){
-}//my_handler
+//handler that does nothing (used so that we can ensure that the parent
+//and child are on the same page process-wise)
+void my_handler(int signum){}
 
 int main(){
 
@@ -62,6 +68,7 @@ int main(){
   signal(SIGTTOU, SIG_IGN);
   signal(SIGCHLD, SIG_IGN);
 
+  //set up our handler
   signal(SIGUSR1, my_handler);
   signal(SIGUSR2, my_handler);
 
@@ -82,10 +89,10 @@ int main(){
 
     string prompt = "1730sh:" + getcwdir() + "$ ";
 
-    //prompt
+    //print the prompt
     write(STDOUT_FILENO, prompt.c_str(), prompt.length());
 
-    //read
+    //read user input
     read(STDIN_FILENO, buffer, MAX_LINE_LENGTH);
 
     //if the user typed something
@@ -97,9 +104,10 @@ int main(){
       //if we are running the process in the background
       bool background = false;
 
+      //if we are running a builtin
       bool builtin = false;
 
-      //put the input words into argv for easy use
+      //put the input words into arguments for easy use
       stringstream ss(buffer);
 
       string currS;
@@ -125,8 +133,10 @@ int main(){
 
 	  if((processes[i][j] == "&") && (processes[i][j+1] == "") && (processes[i + 1][0] == "")){
 
+	    //we're running in the background
 	    background = true;
 
+	    //remove the ampersand from the arguments
 	    processes[i][j] = "";
 
 	  }//if
@@ -240,13 +250,14 @@ int main(){
 
 	    }//for
 
+	    //if we have IO redirection
 	    redirectIO(in_fileno, out_fileno, err_fileno);
 
+	    //tell the  parent we're here
 	    kill(shellPID, SIGUSR2);
 
+	    //if we're running in the background, stop
 	    if(background) raise(SIGSTOP);
-
-	    else pause();
 
 	    //execute the process
 	    execute(processes[i]);
@@ -294,6 +305,7 @@ int main(){
 	
       }//else if
 
+      //if we have help
       else if(processes[0][0] == "help"){
 
 	builtin = true;
@@ -309,56 +321,70 @@ int main(){
 
       }//else if
 
+      //if we have jobs
       else if(processes[0][0] == "jobs"){
 
 	builtin = true;
 
+	//print the jobs
 	printJobs();
 
       }//else if
 
+      //if we have fg
       else if(processes[0][0] == "fg"){
 
 	builtin = true;
 
+	//usage error
 	if(processes[0][1] == ""){
 
 	  write(STDOUT_FILENO,"fg: usage: fg JID\n",18);
 
 	}//if
 
+	//usage error
 	else if(removeJob(std::stoi(processes[0][1])) < 0){
 
 	  write(STDOUT_FILENO,"fg: no such JID\n",17);
 
 	}//if
 
+	//no usage errors
 	else{
 
+	  //try to get  the process ID the user typed
+	  //if the user did not type a number, this line crashes the shell
 	  int processPID = std::stoi(processes[0][1]);
 
+	  //put the process in the process group that has access to the shell
 	  setpgid(processPID, shellPGID);
 
+	  //signal the  proces to continue
 	  if(kill(processPID, SIGCONT) < 0) perror("kill");
 
 	  int stat;
 
+	  //wait for the process
 	  if(waitpid(processPID, &stat, WUNTRACED) != -1) printstatus(stat,pid);
 
 	}//else
 
       }//else if
 
+      //if we have bg
       else if(processes[0][0] == "bg"){
 
 	builtin = true;
 
+	//usage error
 	if(processes[0][1] == ""){
 
           write(STDOUT_FILENO,"bg: usage: bg JID\n",18);
 
         }//if
 
+	//the job does not exist
         else if(updateJob(std::stoi(processes[0][1]),"Running") < 0){
 
           write(STDOUT_FILENO,"bg: no such JID\n",17);
@@ -367,32 +393,43 @@ int main(){
 
         else{
 
+	  //try to get the process ID  the user typed
+          //if the user did not type a number, this line crashes the shell
           int processPID = std::stoi(processes[0][1]);
 
+	  //put the process into its own process group so it doesn't have access
+	  //to the terminal
           setpgid(processPID, processPID);
 
+	  //signal the  proces to continue, and don't wait for it
           kill(processPID, SIGCONT);
 
         }//else
 
       }//else if
 
+      //if we have kill
       else if(processes[0][0] == "kill"){
 
 	builtin = true;
 
+	//usage error
 	if(processes[0][1] == "") write(STDOUT_FILENO,"kill: usage: kill [-s SIGNAL] JID\n",34);
 
 	else if(processes[0][1] == "-s"){
 
+	  //usage errors
 	  if((processes[0][2] == "") || (processes[0][3] == "")) write(STDOUT_FILENO,"kill: usage: kill [-s SIGNAL] JID\n",34);
 
 	  else{
 
 	    int signum;
 
+	    //try to get the process ID the user typed
+	    //if the user did not type a number, this line crashes the shell
 	    int JID = std::stoi(processes[0][3]);
 
+	    //the signal the user typed
 	    string signal = processes[0][2];
 
 	    //signals that we can handle
@@ -441,7 +478,15 @@ int main(){
 	      signum = SIGCONT;
 	      updateJob(JID,"Running");
 	    }//else if
+	    else{
 
+	      //set signum to the integer that the user typed
+	      //if the  user did not type an integer, this rashes the shell
+	      signum = std::stoi(signal);
+
+	    }//else
+
+	    //send the  signa
 	    if(kill(JID,signum) < 0) perror("kill");
 
 	  }//else
@@ -450,14 +495,19 @@ int main(){
 
 	else{
 
+	  //usage error
 	  if(processes[0][1] == "") write(STDOUT_FILENO,"kill: usage: kill [-s SIGNAL] JID\n",34);
 
 	  else{
 
+	    //try to get the process ID  the user typed
+	    //if the user did not type a number, this line crashes the shell
 	    int JID = std::stoi(processes[0][1]);
 
+	    //send the  signalto terminate the process
 	    if(kill(JID,SIGTERM) < 0) perror("kill");
 
+	    //remove the job from the list of running jobs
 	    removeJob(JID);
 
 	  }//else
@@ -507,12 +557,16 @@ int main(){
 	  signal(SIGTTOU, SIG_DFL);
 	  signal(SIGCHLD, SIG_DFL);
 
+	  //redirect IO
 	  redirectIO(in_fileno, out_fileno, err_fileno);
 
+	  //tell the parent we're here
 	  kill(shellPID, SIGUSR2);
 
+	  //if we're running in the background, stop here
 	  if(background) raise(SIGSTOP);
 
+	  //wait for the parent to catch up
 	  else pause();
 
 	  //execute the command
@@ -520,6 +574,7 @@ int main(){
 
 	}//else if
 
+	//we need to wait for the child to tell us that it has changed its PGID
 	else if(pid != 0){
 
 	  pause();
@@ -540,8 +595,10 @@ int main(){
 
 	}//for
 
+	//if the program has terminated
 	bool exited = false;
 
+	//the status that waitpid() returns
 	int stat = 0;
 
 	//if we're not in the background, wait for the child and print its status once it exits
@@ -549,26 +606,33 @@ int main(){
 	//which happens often
 	if(!background){
 
+	  //tell the child we're here
 	  kill(pid,SIGUSR1);
 
+	  //wait for the child and print its status if we detect a status change
 	  if(waitpid(pid, &stat, WUNTRACED) != -1) printstatus(stat,pid);
 
+	  //if wait returned -1, the process terminated before we could wait for it
 	  else exited = true;
 
 	}//if
 
+	//add the  job to jobs
 	addJob(pgid,arguments,stat);
 
+	//if the program terminated, remove it from jobs
 	if(exited) removeJob(pgid);
 
       }//if
 
     }//if
 
+    //reset all of our  globalarrays
     reset();
 
   }//while
 
+  //this is pointless
   return EXIT_SUCCESS;
 
 }//main 
@@ -627,7 +691,11 @@ void quotes()
 } // quotes()
 
 
-/* Helper function for redirectIO. Return true if string is <, >, >>, e>, or e>>. Else return false */
+/* 
+ * Helper function for redirectIO. Return true if string is <, >, >>, e>, or e>>. Else return false
+ * @param s the string  to check
+ * @return true if string is <, >, >>, e>, or e>>, return false otherwise
+ */
 bool isArrows(string s)
 {
   if(s == ">")
@@ -645,12 +713,15 @@ bool isArrows(string s)
     return false;
 }
 
-/* 
+/*
  * This function is called in a child process just before exec to acheive IO redirection.
  * First parses jobStdin, jobStdout, jobStderr.
  *      --> their file descriptors (returned by open(2)) are then assigned to in_fileno, out_fileno, and/or err_fileno.
  *      --> Finally, duplicate those file descriptors onto STDIN, STDOUT, and STDERR 
  * Also removes <, >, >>, e>, and e>> (and anything following them) from the process's arguments using bool 'omit'
+ * @param in_fileno the integer whose value we want to correspond to our input
+ * @param out_fileno the integer whose value we want to correspond to our output
+ * @param err_fileno the integer whose value we want to correspond to our error
  */
 void redirectIO(int& in_fileno, int& out_fileno, int& err_fileno) 
 {
@@ -729,7 +800,11 @@ void redirectIO(int& in_fileno, int& out_fileno, int& err_fileno)
 } //redirectIO()
 
 	
-/* Removes backslashes that are directly followed by quotes within a string */
+/* 
+ * Removes backslashes that are directly followed by quotes within a string
+ * @param str the string to remove backslashes from
+ * @return the edited string 
+ */
 string remove_slashes(string str)
 {
   string str_to_erase = "\\\""; // removing \"
@@ -743,7 +818,11 @@ string remove_slashes(string str)
   return str;
 }
 
-/* Used for removing double quotes on both sides of a string */
+/* 
+ * Used for removing double quotes on both sides of a string
+ * @param s the string  to remove doubl quotes from
+ * @return the edited string
+ */
 string remove_firstAndLast(string str)
 {
   str.erase(0, 1); //remove first char from str
@@ -919,6 +998,7 @@ void execute(string args[]){
 /*
  * Writes the specified process change to standard output
  * @param status the int value of the status change
+ * @param JID the id of the process whose status has changed
  */
 void printstatus(int stat, int JID){
 
@@ -947,6 +1027,9 @@ void printstatus(int stat, int JID){
 
 /*
  * Adds a job to the jobs array
+ * @param ID the JID of the job
+ * @param command the arguments of the job
+ * @param stat the status of the job
  */
 void addJob(int ID, string command[], int stat){
 
@@ -956,6 +1039,7 @@ void addJob(int ID, string command[], int stat){
 
   string JID = std::to_string(ID);
 
+  //what to write for the status
   if(WIFSTOPPED(stat)) status = "Stopped";
 
   else if(stat == 0) status = "Stopped";
@@ -964,6 +1048,7 @@ void addJob(int ID, string command[], int stat){
 
   out = JID + "\t" + status + "\t\t";
 
+  //add the arguments
   for(int i = 0; command[i] != ""; i++){
 
     out += command[i];
@@ -974,12 +1059,14 @@ void addJob(int ID, string command[], int stat){
 
   int pos = 0;
 
+  //find the first empty spot in the array
   for(int i = 0; jobs[i] != ""; i++){
 
     pos++;
 
   }//for
 
+  //put this job there
   jobs[pos] = out;
 
 }//addJob
