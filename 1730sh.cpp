@@ -387,60 +387,64 @@ int main(){
 
 	  if((processes[0][2] == "") || (processes[0][3] == "")) write(STDOUT_FILENO,"kill: usage: kill [-s SIGNAL] JID\n",34);
 
-	  int signum;
+	  else{
 
-	  int JID = std::stoi(processes[0][3]);
+	    int signum;
 
-	  string signal = processes[0][2];
+	    int JID = std::stoi(processes[0][3]);
 
-	  //signals that we can handle
-	  if(signal == "SIGSTOP"){
-	    signum = SIGSTOP;
-	    updateJob(JID,"Stopped");
-	  }//if
-	  else if(signal == "SIGKILL"){
-	    signum = SIGKILL;
-	    removeJob(JID);
-	  }//if
-	  else if(signal == "SIGTERM"){
-	    signum = SIGTERM;
-	    removeJob(JID);
-	  }//else if
-	  else if(signal == "SIGINT"){
-	    signum = SIGINT;
-	    updateJob(JID,"Stopped");
-	  }//else if
-	  else if(signal == "SIGQUIT"){
-	    signum = SIGQUIT;
-	    removeJob(JID);
-	  }//else if
-	  else if(signal == "SIGTSTP"){
-            signum = SIGTSTP;
-	    updateJob(JID,"Stopped");
-          }//else if
-	  else if(signal == "SIGTTIN"){
-            signum = SIGTTIN;
-          }//else if
-	  else if(signal == "SIGTTOU"){
-            signum = SIGTTOU;
-          }//else if
-	  else if(signal == "SIGCHLD"){
-            signum = SIGCHLD;
-          }//else if
-	  else if(signal == "SIGABRT"){
-            signum = SIGABRT;
-	    removeJob(JID);
-          }//else if
-	  else if(signal == "SIGTERM"){
-            signum = SIGTERM;
-	    removeJob(JID);
-          }//else if
-	  else if(signal == "SIGCONT"){
-	    signum = SIGCONT;
-	    updateJob(JID,"Running");
-	  }//else if
+	    string signal = processes[0][2];
 
-	  if(kill(JID,signum) < 0) perror("kill");
+	    //signals that we can handle
+	    if(signal == "SIGSTOP"){
+	      signum = SIGSTOP;
+	      updateJob(JID,"Stopped");
+	    }//if
+	    else if(signal == "SIGKILL"){
+	      signum = SIGKILL;
+	      removeJob(JID);
+	    }//if
+	    else if(signal == "SIGTERM"){
+	      signum = SIGTERM;
+	      removeJob(JID);
+	    }//else if
+	    else if(signal == "SIGINT"){
+	      signum = SIGINT;
+	      updateJob(JID,"Stopped");
+	    }//else if
+	    else if(signal == "SIGQUIT"){
+	      signum = SIGQUIT;
+	      removeJob(JID);
+	    }//else if
+	    else if(signal == "SIGTSTP"){
+	      signum = SIGTSTP;
+	      updateJob(JID,"Stopped");
+	    }//else if
+	    else if(signal == "SIGTTIN"){
+	      signum = SIGTTIN;
+	    }//else if
+	    else if(signal == "SIGTTOU"){
+	      signum = SIGTTOU;
+	    }//else if
+	    else if(signal == "SIGCHLD"){
+	      signum = SIGCHLD;
+	    }//else if
+	    else if(signal == "SIGABRT"){
+	      signum = SIGABRT;
+	      removeJob(JID);
+	    }//else if
+	    else if(signal == "SIGTERM"){
+	      signum = SIGTERM;
+	      removeJob(JID);
+	    }//else if
+	    else if(signal == "SIGCONT"){
+	      signum = SIGCONT;
+	      updateJob(JID,"Running");
+	    }//else if
+
+	    if(kill(JID,signum) < 0) perror("kill");
+
+	  }//else
 
 	}//else if
 
@@ -461,6 +465,17 @@ int main(){
 	}//else
 
       }//else if
+
+      //if we have export
+      else if(processes[0][0] == "export") {
+	builtin = true;
+        size_t found = (processes[0][1]).find("="); //index where = is found
+        if(found != string::npos) { //contains =
+          string name = (processes[0][1]).substr(0, found); //string before the =
+          string value = (processes[0][1]).substr(found + 1, (processes[0][1]).size()); //string after the =
+          setenv(name.c_str(), value.c_str(), 1); // overwrite if already exists
+        }
+      }
 
       //if we have no pipes and aren't running a builtin
       else{
