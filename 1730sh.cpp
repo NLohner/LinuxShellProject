@@ -44,6 +44,7 @@ void quotes();
 void redirectIO(int&, int&, int&); //fd_in, fd_out, fd_err
 void addJob(int,string[],int);
 int removeJob(int);
+int updateJob(int,string);
 void printJobs();
 
 int status = 1;
@@ -243,7 +244,9 @@ int main(){
 
 	    kill(shellPID, SIGUSR2);
 
-	    if(!background) pause();
+	    if(background) raise(SIGSTOP);
+
+	    else pause();
 
 	    //execute the process
 	    execute(processes[i]);
@@ -336,13 +339,124 @@ int main(){
 
 	  setpgid(processPID, shellPGID);
 
-	  kill(processPID, SIGCONT);
+	  if(kill(processPID, SIGCONT) < 0) perror("kill");
 
 	  int stat;
 
-	  wait(&stat);
-
 	  if(waitpid(processPID, &stat, WUNTRACED) != -1) printstatus(stat,pid);
+
+	}//else
+
+      }//else if
+
+      else if(processes[0][0] == "bg"){
+
+	builtin = true;
+
+	if(processes[0][1] == ""){
+
+          write(STDOUT_FILENO,"bg: usage: bg JID\n",18);
+
+        }//if
+
+        else if(updateJob(std::stoi(processes[0][1]),"Running") < 0){
+
+          write(STDOUT_FILENO,"bg: no such JID\n",17);
+
+        }//if
+
+        else{
+
+          int processPID = std::stoi(processes[0][1]);
+
+          setpgid(processPID, processPID);
+
+          kill(processPID, SIGCONT);
+
+        }//else
+
+      }//else if
+
+      else if(processes[0][0] == "kill"){
+
+	builtin = true;
+
+	if(processes[0][1] == "") write(STDOUT_FILENO,"kill: usage: kill [-s SIGNAL] JID\n",34);
+
+	else if(processes[0][1] == "-s"){
+
+	  if((processes[0][2] == "") || (processes[0][3] == "")) write(STDOUT_FILENO,"kill: usage: kill [-s SIGNAL] JID\n",34);
+
+	  int signum;
+
+	  int JID = std::stoi(processes[0][3]);
+
+	  string signal = processes[0][2];
+
+	  //signals that we can handle
+	  if(signal == "SIGSTOP"){
+	    signum = SIGSTOP;
+	    updateJob(JID,"Stopped");
+	  }//if
+	  else if(signal == "SIGKILL"){
+	    signum = SIGKILL;
+	    removeJob(JID);
+	  }//if
+	  else if(signal == "SIGTERM"){
+	    signum = SIGTERM;
+	    removeJob(JID);
+	  }//else if
+	  else if(signal == "SIGINT"){
+	    signum = SIGINT;
+	    updateJob(JID,"Stopped");
+	  }//else if
+	  else if(signal == "SIGQUIT"){
+	    signum = SIGQUIT;
+	    removeJob(JID);
+	  }//else if
+	  else if(signal == "SIGTSTP"){
+            signum = SIGTSTP;
+	    updateJob(JID,"Stopped");
+          }//else if
+	  else if(signal == "SIGTTIN"){
+            signum = SIGTTIN;
+          }//else if
+	  else if(signal == "SIGTTOU"){
+            signum = SIGTTOU;
+          }//else if
+	  else if(signal == "SIGCHLD"){
+            signum = SIGCHLD;
+          }//else if
+	  else if(signal == "SIGABRT"){
+            signum = SIGABRT;
+	    removeJob(JID);
+          }//else if
+	  else if(signal == "SIGTERM"){
+            signum = SIGTERM;
+	    removeJob(JID);
+          }//else if
+	  else if(signal == "SIGCONT"){
+	    signum = SIGCONT;
+	    updateJob(JID,"Running");
+	  }//else if
+
+	  if(kill(JID,signum) < 0) perror("kill");
+
+	}//else if
+
+	else{
+
+	  if(processes[0][1] == "") write(STDOUT_FILENO,"kill: usage: kill [-s SIGNAL] JID\n",34);
+
+	  else{
+
+	    int JID = std::stoi(processes[0][1]);
+
+	    if(kill(JID,SIGTERM) < 0) perror("kill");
+
+	    removeJob(JID);
+
+	  }//else
 
 	}//else
 
@@ -382,9 +496,9 @@ int main(){
 
 	  kill(shellPID, SIGUSR2);
 
-	  if(background) kill(getpid(),SIGSTOP);
+	  if(background) raise(SIGSTOP);
 
-	  if(!background) pause();
+	  else pause();
 
 	  //execute the command
 	  execute(processes[0]);
@@ -913,3 +1027,42 @@ void printJobs(){
   }//for
 
 }//printJobs
+
+/*
+ * Sets the status of the job with job ID JID to running
+ * @param JID the job id of the job to update
+ * @return the index of the job in jobs on success and -1 on failure
+ */
+int updateJob(int JID, string status){
+
+  int out = -1;
+
+  string ID = std::to_string(JID);
+
+  int end = ID.length();
+
+  for(int i = 0; jobs[i] != ""; i++){
+
+    if(jobs[i].substr(0,end) == ID){
+
+      string str = jobs[i];
+
+      int index = jobs[i].find('S');
+
+      if(index == (signed int)string::npos) index = jobs[i].find('R');
+
+      str = str.replace(index, status.length(), status);
+
+      jobs[i] = str;
+
+      out = i;
+
+      break;
+
+    }//if
+
+  }//for
+
+  return out;
+
+}//resumeJob
