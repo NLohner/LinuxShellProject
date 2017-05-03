@@ -272,9 +272,13 @@ int main(){
 
 	  }//else if
 
+	  
 	}//for
 
       }//if
+     
+     
+       
 
       //if we have exit
       else if(processes[0][0] == "exit"){
@@ -621,8 +625,21 @@ int main(){
 	addJob(pgid,arguments,stat);
 
 	//if the program terminated, remove it from jobs
-	if(exited) removeJob(pgid);
-
+	if(exited) {
+	  if(WIFEXITED(stat)) {
+	    string outpt = "";
+     
+	    for(int i = 0; arguments[i] != ""; i++){
+	      outpt += arguments[i];    
+	      outpt += " ";
+	    }
+	    setvbuf(stdout, NULL, _IONBF, 0); //unbuffered printf output
+	    printf("%d Exited (%d) %10s\n", pgid, WEXITSTATUS(stat), outpt.c_str());
+	    
+	    removeJob(pgid);
+	  }
+	}
+	
       }//if
 
     }//if
@@ -634,9 +651,9 @@ int main(){
 
   //this is pointless
   return EXIT_SUCCESS;
-
-}//main 
-
+  
+}  //main 
+  
 /* 
  * Modifies the global variable 'processes' so that arguments within quotes
  *      will count as one argument altogether. 
